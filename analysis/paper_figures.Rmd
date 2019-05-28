@@ -1,5 +1,7 @@
 ---
-output: html_document
+output:
+  pdf_document: default
+  html_document: default
 ---
 
 ```{r setup}
@@ -17,13 +19,7 @@ knitr::opts_chunk$set(echo = TRUE)
 
 Code for figures for the paper The Microbiome Modulates DNA Methylation in Mouse Colonic Mucosa
 
-### Figure 1: Affect of Microbiome and Inflammation (IL10KO) on Methylation
-
-Volcano plots, stacked bar plots of significant CpG locations, stacked bar plot of whether sites were were significant for the microbiome, IL10KO, or both
-
----
-
-#### Wrangle Data
+### Wrangle Data
 
 Read in the data
 
@@ -102,6 +98,12 @@ lauren_data %>%
          baseline_anno, location_anno) -> lauren_data_wrangled
 ```
 
+### Figure 1: Affect of Microbiome and Inflammation (IL10KO) on Methylation
+
+Volcano plots, stacked bar plots of significant CpG locations, stacked bar plot of whether sites were were significant for the microbiome, IL10KO, or both
+
+---
+
 #### Volcano Plots
 
 **SPF - GF** Methylation differences between specific pathogen free mice and germ free mice. Contribution from having a microbiome.
@@ -122,7 +124,8 @@ ggplot(aes(x = meth_diff, y = logpvalue, color = volc_color)) +
              linetype = 'dashed') +
   labs(x = 'Difference in % Methylation (SPF - GF)',
        y = '-Log10 PValue') +
-  coord_cartesian(xlim = c(-50, 50)) +
+  coord_cartesian(xlim = c(-50, 50),
+                  ylim = c(0, 10)) +
   theme_classic() +
   theme(axis.title = element_text(size = 16),
         axis.text.x = element_text(size = 12),
@@ -150,7 +153,8 @@ ggplot(aes(x = meth_diff, y = logpvalue, color = volc_color)) +
              linetype = 'dashed') +
   labs(x = 'Difference in % Methylation (GF/IL10KO - GF)',
        y = '-Log10 PValue') +
-  coord_cartesian(xlim = c(-50, 50)) +
+  coord_cartesian(xlim = c(-50, 50),
+                  ylim = c(0, 10)) +
   theme_classic() +
   theme(axis.title = element_text(size = 16),
         axis.text.x = element_text(size = 12),
@@ -178,7 +182,8 @@ ggplot(aes(x = meth_diff, y = logpvalue, color = volc_color)) +
              linetype = 'dashed') +
   labs(x = 'Difference in % Methylation (SPFKO - GF)',
        y = '-Log10 PValue') +
-  coord_cartesian(xlim = c(-50, 50)) +
+  coord_cartesian(xlim = c(-50, 50),
+                  ylim = c(0, 10)) +
   theme_classic() +
   theme(axis.title = element_text(size = 16),
         axis.text.x = element_text(size = 12),
@@ -223,7 +228,7 @@ ggplot(aes(x = meth_change_5, y = proportion, fill = location_anno)) +
   labs(x = 'Direction of Methylation Change',
        y = 'Proportion of Total Detectable Sites',
        fill = '') +
-  coord_cartesian(ylim = c(0, 0.05)) +
+  coord_cartesian(ylim = c(0, 0.06)) +
   theme_classic() +
   theme(axis.title = element_text(size = 16),
         strip.text.x = element_text(size = 12),
@@ -254,7 +259,7 @@ ggplot(aes(x = meth_change_5, y = proportion, fill = location_anno)) +
   labs(x = 'Direction of Methylation Change',
        y = 'Proportion of Total Detectable Sites',
        fill = '') +
-  coord_cartesian(ylim = c(0, 0.05)) +
+  coord_cartesian(ylim = c(0, 0.06)) +
   theme_classic() +
   theme(axis.title = element_text(size = 16),
         strip.text.x = element_text(size = 12),
@@ -285,7 +290,7 @@ ggplot(aes(x = meth_change_5, y = proportion, fill = location_anno)) +
   labs(x = 'Direction of Methylation Change',
        y = 'Proportion of Total Detectable Sites',
        fill = '') +
-  coord_cartesian(ylim = c(0, 0.05)) +
+  coord_cartesian(ylim = c(0, 0.06)) +
   theme_classic() +
   theme(axis.title = element_text(size = 16),
         strip.text.x = element_text(size = 12),
@@ -329,7 +334,69 @@ ggsave('figure1/site_direction_dodged_bar.pdf', width = 8, height = 8)
 ggsave('figure1/site_direction_dodged_bar.tiff', width = 8, height = 8)
 ```
 
+### Figure 2: Effect of Azoxymethane on Methylation
+
+#### Volcano Plot
+
+**SPFAOM - SPF** Methylation differences between specific pathogen free mice treated with azoxymethane and specific pathogen free mice. Effect of the drug.
+
+```{r}
+lauren_data_wrangled %>% 
+  filter(sample_id == 'spfaom-spf') %>%
 
 
+ggplot(aes(x = meth_diff, y = logpvalue, color = volc_color)) +
+  geom_point(size = 1) +
+  scale_color_manual(values = c('gray60', 'darkcyan')) +
+  geom_vline(xintercept = c(-5, 5), 
+             color = 'gray40', 
+             linetype = c('dashed')) +
+  geom_hline(yintercept = -log10(0.05), 
+             color = 'gray40', 
+             linetype = 'dashed') +
+  labs(x = 'Difference in % Methylation (SPFAOM - SPF)',
+       y = '-Log10 PValue') +
+  coord_cartesian(xlim = c(-50, 50),
+                  ylim = c(0, 10)) +
+  theme_classic() +
+  theme(axis.title = element_text(size = 16),
+        axis.text.x = element_text(size = 12),
+        legend.position = 'none')
+ggsave('figure2/spfaom-spf_volcano.png', width = 8, height = 8)
+ggsave('figure2/spfaom-spf_volcano.pdf', width = 8, height = 8)
+ggsave('figure2/spfaom-spf_volcano.tiff', width = 8, height = 8)
+```
 
+#### Stacked CpG Location Bar Plots
+
+**SPFAOM - SPF** Location of significant CpG sites from the volcano plot between specific pathogen free mice treated with azoxymethane and specific pathogen free mice. 
+
+```{r}
+lauren_data_wrangled %>%
+  filter(sample_id == 'spfaom-spf',
+         significance == 'sig',
+         meth_change_5 != 'no_change') %>%
+  group_by(significance, meth_change_5, location_anno, baseline_anno) %>%
+  count() %>%
+  ungroup() %>%
+  mutate(proportion = (n / num_sites_detected$`spfko-gf`)) %>%
+
+
+ggplot(aes(x = meth_change_5, y = proportion, fill = location_anno)) +
+  geom_bar(stat = 'identity') +
+  scale_fill_viridis_d(direction = -1, option = 'cividis') +
+  facet_wrap(~ baseline_anno) +
+  labs(x = 'Direction of Methylation Change',
+       y = 'Proportion of Total Detectable Sites',
+       fill = '') +
+  coord_cartesian(ylim = c(0, 0.06)) +
+  theme_classic() +
+  theme(axis.title = element_text(size = 16),
+        strip.text.x = element_text(size = 12),
+        axis.text.x = element_text(size = 12),
+        legend.text = element_text(size = 12))
+ggsave('figure2/spfaom-spf_stacked_bar.png', width = 8, height = 8)
+ggsave('figure2/spfaom-spf_stacked_bar.pdf', width = 8, height = 8)
+ggsave('figure2/spfaom-spf_stacked_bar.tiff', width = 8, height = 8)
+```
 

@@ -6,6 +6,7 @@ output: html_document
 library(tidyverse)
 library(conflicted)
 library(viridis)
+library(wesanderson)
 
 filter <- dplyr::filter
 
@@ -103,10 +104,6 @@ lauren_data %>%
 
 #### Volcano Plots
 
-```{r}
-lauren_data_wrangled %>% distinct(sample_id)
-```
-
 **SPF - GF** Methylation differences between specific pathogen free mice and germ free mice. Contribution from having a microbiome.
 
 ```{r}
@@ -125,15 +122,14 @@ ggplot(aes(x = meth_diff, y = logpvalue, color = volc_color)) +
              linetype = 'dashed') +
   labs(x = 'Difference in % Methylation (SPF - GF)',
        y = '-Log10 PValue') +
-  coord_cartesian(xlim = c(-60, 60)) +
+  coord_cartesian(xlim = c(-50, 50)) +
   theme_classic() +
   theme(axis.title = element_text(size = 16),
-        strip.text.x = element_text(size = 12),
         axis.text.x = element_text(size = 12),
         legend.position = 'none')
-ggsave('spf-gf_volcano.png', width = 8, height = 8)
-ggsave('spf-gf_volcano.pdf', width = 8, height = 8)
-ggsave('spf-gf_volcano.tiff', width = 8, height = 8)
+ggsave('figure1/spf-gf_volcano.png', width = 8, height = 8)
+ggsave('figure1/spf-gf_volcano.pdf', width = 8, height = 8)
+ggsave('figure1/spf-gf_volcano.tiff', width = 8, height = 8)
 ```
 
 **GFIL10KO - GF** Methylation differences between germ free mice with IL10KO and germ free mice. Contribution from the IL10KO.
@@ -154,15 +150,14 @@ ggplot(aes(x = meth_diff, y = logpvalue, color = volc_color)) +
              linetype = 'dashed') +
   labs(x = 'Difference in % Methylation (GF/IL10KO - GF)',
        y = '-Log10 PValue') +
-  coord_cartesian(xlim = c(-60, 60)) +
+  coord_cartesian(xlim = c(-50, 50)) +
   theme_classic() +
   theme(axis.title = element_text(size = 16),
-        strip.text.x = element_text(size = 12),
         axis.text.x = element_text(size = 12),
         legend.position = 'none')
-ggsave('gfko-gf_volcano.png', width = 8, height = 8)
-ggsave('gfko-gf_volcano.pdf', width = 8, height = 8)
-ggsave('gfko-gf_volcano.tiff', width = 8, height = 8)
+ggsave('figure1/gfko-gf_volcano.png', width = 8, height = 8)
+ggsave('figure1/gfko-gf_volcano.pdf', width = 8, height = 8)
+ggsave('figure1/gfko-gf_volcano.tiff', width = 8, height = 8)
 ```
 
 **SPFKO - GF** Methylation differences between specific pathogen free mice with IL10KO and germ free mice. Synergy between the two conditions
@@ -183,45 +178,155 @@ ggplot(aes(x = meth_diff, y = logpvalue, color = volc_color)) +
              linetype = 'dashed') +
   labs(x = 'Difference in % Methylation (SPFKO - GF)',
        y = '-Log10 PValue') +
-  coord_cartesian(xlim = c(-60, 60)) +
+  coord_cartesian(xlim = c(-50, 50)) +
   theme_classic() +
   theme(axis.title = element_text(size = 16),
-        strip.text.x = element_text(size = 12),
         axis.text.x = element_text(size = 12),
         legend.position = 'none')
-ggsave('spfko-gf_volcano.png', width = 8, height = 8)
-ggsave('spfko-gf_volcano.pdf', width = 8, height = 8)
-ggsave('spfko-gf_volcano.tiff', width = 8, height = 8)
+ggsave('figure1/spfko-gf_volcano.png', width = 8, height = 8)
+ggsave('figure1/spfko-gf_volcano.pdf', width = 8, height = 8)
+ggsave('figure1/spfko-gf_volcano.tiff', width = 8, height = 8)
 ```
 
 #### Stacked CpG Location Bar Plots
 
+Count number of sites detected in each sample.
+
 ```{r}
-for (i in num_sites_detected$sample_id) {
-  lauren_data_wrangled_2 %>%
-  filter(sample_id == i, significance == 'sig') %>%
-  group_by(sample_id, num_sites_detected,
-           meth_change_5, location_anno, baseline_anno) %>%
+lauren_data_wrangled %>%
+  group_by(sample_id) %>%
   count() %>%
   ungroup() %>%
-  filter(meth_change_5 != 'no_change') %>%
-  mutate(proportion = (n / num_sites_detected)) %>%
-   ggplot(aes(x = meth_change_5, y = proportion, fill = location_anno)) +
-    geom_bar(stat = 'identity') +
-    scale_fill_viridis_d(direction = -1, option = 'cividis') +
-    facet_wrap(~ baseline_anno) +
-    labs(x = 'Direction of Methylation Change',
-         y = 'Proportion of Total Detectable Sites',
-         fill = '',
-         title = i) +
-    theme_classic() +
-    theme(axis.title = element_text(size = 16),
-          strip.text.x = element_text(size = 12),
-          axis.text.x = element_text(size = 12),
-          legend.text = element_text(size = 12)) -> plot
-  print(plot)
-#  ggsave(paste('bar_cgi_prop_', i, '.png', sep = ''))
-}
+  rename(num_sites_detected = n) %>%
+  spread(sample_id, num_sites_detected) -> num_sites_detected
+```
+
+---
+
+**SPF - GF** Location of significant CpG sites from the volcano plot between specific pathogen free mice and germ free mice. 
+
+```{r}
+lauren_data_wrangled %>%
+  filter(sample_id == 'spf-gf',
+         significance == 'sig',
+         meth_change_5 != 'no_change') %>%
+  group_by(significance, meth_change_5, location_anno, baseline_anno) %>%
+  count() %>%
+  ungroup() %>%
+  mutate(proportion = (n / num_sites_detected$`spf-gf`)) %>%
+
+
+ggplot(aes(x = meth_change_5, y = proportion, fill = location_anno)) +
+  geom_bar(stat = 'identity') +
+  scale_fill_viridis_d(direction = -1, option = 'cividis') +
+  facet_wrap(~ baseline_anno) +
+  labs(x = 'Direction of Methylation Change',
+       y = 'Proportion of Total Detectable Sites',
+       fill = '') +
+  coord_cartesian(ylim = c(0, 0.05)) +
+  theme_classic() +
+  theme(axis.title = element_text(size = 16),
+        strip.text.x = element_text(size = 12),
+        axis.text.x = element_text(size = 12),
+        legend.text = element_text(size = 12))
+ggsave('figure1/spf-gf_stacked_bar.png', width = 8, height = 8)
+ggsave('figure1/spf-gf_stacked_bar.pdf', width = 8, height = 8)
+ggsave('figure1/spf-gf_stacked_bar.tiff', width = 8, height = 8)
+```
+
+**GFKO - GF** Location of significant CpG sites from the volcano plot between germ free mice with IL10KO and germ free mice. 
+
+```{r}
+lauren_data_wrangled %>%
+  filter(sample_id == 'gfko-gf',
+         significance == 'sig',
+         meth_change_5 != 'no_change') %>%
+  group_by(significance, meth_change_5, location_anno, baseline_anno) %>%
+  count() %>%
+  ungroup() %>%
+  mutate(proportion = (n / num_sites_detected$`gfko-gf`)) %>%
+
+
+ggplot(aes(x = meth_change_5, y = proportion, fill = location_anno)) +
+  geom_bar(stat = 'identity') +
+  scale_fill_viridis_d(direction = -1, option = 'cividis') +
+  facet_wrap(~ baseline_anno) +
+  labs(x = 'Direction of Methylation Change',
+       y = 'Proportion of Total Detectable Sites',
+       fill = '') +
+  coord_cartesian(ylim = c(0, 0.05)) +
+  theme_classic() +
+  theme(axis.title = element_text(size = 16),
+        strip.text.x = element_text(size = 12),
+        axis.text.x = element_text(size = 12),
+        legend.text = element_text(size = 12))
+ggsave('figure1/gfko-gf_stacked_bar.png', width = 8, height = 8)
+ggsave('figure1/gfko-gf_stacked_bar.pdf', width = 8, height = 8)
+ggsave('figure1/gfko-gf_stacked_bar.tiff', width = 8, height = 8)
+```
+
+**SPFKO - GF** Location of significant CpG sites from the volcano plot between specific pathogen free mice with IL10KO and germ free mice. 
+
+```{r}
+lauren_data_wrangled %>%
+  filter(sample_id == 'spfko-gf',
+         significance == 'sig',
+         meth_change_5 != 'no_change') %>%
+  group_by(significance, meth_change_5, location_anno, baseline_anno) %>%
+  count() %>%
+  ungroup() %>%
+  mutate(proportion = (n / num_sites_detected$`spfko-gf`)) %>%
+
+
+ggplot(aes(x = meth_change_5, y = proportion, fill = location_anno)) +
+  geom_bar(stat = 'identity') +
+  scale_fill_viridis_d(direction = -1, option = 'cividis') +
+  facet_wrap(~ baseline_anno) +
+  labs(x = 'Direction of Methylation Change',
+       y = 'Proportion of Total Detectable Sites',
+       fill = '') +
+  coord_cartesian(ylim = c(0, 0.05)) +
+  theme_classic() +
+  theme(axis.title = element_text(size = 16),
+        strip.text.x = element_text(size = 12),
+        axis.text.x = element_text(size = 12),
+        legend.text = element_text(size = 12))
+ggsave('figure1/spfko-gf_stacked_bar.png', width = 8, height = 8)
+ggsave('figure1/spfko-gf_stacked_bar.pdf', width = 8, height = 8)
+ggsave('figure1/spfko-gf_stacked_bar.tiff', width = 8, height = 8)
+```
+
+#### Direction of Change by Experimental Condition Stacked Bar Plot for SPFKO - GF
+
+```{r}
+lauren_data_wrangled %>%
+  filter(sample_id %in% c('spf-gf', 'gfko-gf', 'spfko-gf'),
+         meth_change_5 != 'no_change',
+         significance == 'sig') %>%
+  group_by(sample_id, meth_change_5) %>%
+  count() %>%
+  ungroup() %>% 
+  mutate(proportion = n / rep(c(num_sites_detected$`spf-gf`,
+                                num_sites_detected$`gfko-gf`,
+                                num_sites_detected$`spfko-gf`), each = 2),
+         sample_name = factor(rep(c('IL10KO', 'Microbiome', 'Both'), each = 2),
+                              levels = c('Microbiome', 'IL10KO', 'Both')),
+         direction = ifelse(meth_change_5 == 'hypo', 
+                            'decrease', 'increase')) %>%
+
+ggplot(aes(x = sample_name, y = proportion, fill = direction)) +
+  geom_bar(stat = 'identity', position = 'dodge') +
+  scale_fill_manual(values = wes_palette("Zissou1")[c(1,4)]) +
+  labs(x = '',
+       y = 'Proportion of Total Detectable Sites',
+       fill = '') +
+  theme_classic() +
+  theme(axis.title = element_text(size = 16),
+        axis.text.x = element_text(size = 16),
+        legend.text = element_text(size = 12))
+ggsave('figure1/site_direction_dodged_bar.png', width = 8, height = 8)
+ggsave('figure1/site_direction_dodged_bar.pdf', width = 8, height = 8)
+ggsave('figure1/site_direction_dodged_bar.tiff', width = 8, height = 8)
 ```
 
 

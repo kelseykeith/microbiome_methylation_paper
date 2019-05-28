@@ -107,27 +107,91 @@ lauren_data %>%
 lauren_data_wrangled %>% distinct(sample_id)
 ```
 
+**SPF - GF** Methylation differences between specific pathogen free mice and germ free mice. Contribution from having a microbiome.
+
+```{r}
+lauren_data_wrangled %>%
+  filter(sample_id == 'spf-gf') %>%
+
+
+ggplot(aes(x = meth_diff, y = logpvalue, color = volc_color)) +
+  geom_point(size = 1) +
+  scale_color_manual(values = c('gray60', 'darkcyan')) +
+  geom_vline(xintercept = c(-5, 5), 
+             color = 'gray40', 
+             linetype = c('dashed')) +
+  geom_hline(yintercept = -log10(0.05), 
+             color = 'gray40', 
+             linetype = 'dashed') +
+  labs(x = 'Difference in % Methylation (SPF - GF)',
+       y = '-Log10 PValue') +
+  coord_cartesian(xlim = c(-60, 60)) +
+  theme_classic() +
+  theme(axis.title = element_text(size = 16),
+        strip.text.x = element_text(size = 12),
+        axis.text.x = element_text(size = 12),
+        legend.position = 'none')
+ggsave('spf-gf_volcano.png', width = 8, height = 8)
+ggsave('spf-gf_volcano.pdf', width = 8, height = 8)
+ggsave('spf-gf_volcano.tiff', width = 8, height = 8)
+```
+
+**GFIL10KO - GF** Methylation differences between germ free mice with IL10KO and germ free mice. Contribution from the IL10KO.
+
 ```{r}
 lauren_data_wrangled %>%
   filter(sample_id == 'gfko-gf') %>%
 
 
 ggplot(aes(x = meth_diff, y = logpvalue, color = volc_color)) +
-  geom_point(size = 2) +
+  geom_point(size = 1) +
   scale_color_manual(values = c('gray60', 'darkcyan')) +
-  geom_vline(xintercept = c(-5, 0, 5), 
+  geom_vline(xintercept = c(-5, 5), 
              color = 'gray40', 
-             linetype = c('dashed', 'solid', 'dashed')) +
+             linetype = c('dashed')) +
   geom_hline(yintercept = -log10(0.05), 
              color = 'gray40', 
              linetype = 'dashed') +
-  labs(x = 'Difference in % Methylation (SPF - GF)',
+  labs(x = 'Difference in % Methylation (GF/IL10KO - GF)',
        y = '-Log10 PValue') +
+  coord_cartesian(xlim = c(-60, 60)) +
   theme_classic() +
   theme(axis.title = element_text(size = 16),
         strip.text.x = element_text(size = 12),
         axis.text.x = element_text(size = 12),
         legend.position = 'none')
+ggsave('gfko-gf_volcano.png', width = 8, height = 8)
+ggsave('gfko-gf_volcano.pdf', width = 8, height = 8)
+ggsave('gfko-gf_volcano.tiff', width = 8, height = 8)
+```
+
+**SPFKO - GF** Methylation differences between specific pathogen free mice with IL10KO and germ free mice. Synergy between the two conditions
+
+```{r}
+lauren_data_wrangled %>%
+  filter(sample_id == 'spfko-gf') %>%
+
+
+ggplot(aes(x = meth_diff, y = logpvalue, color = volc_color)) +
+  geom_point(size = 1) +
+  scale_color_manual(values = c('gray60', 'darkcyan')) +
+  geom_vline(xintercept = c(-5, 5), 
+             color = 'gray40', 
+             linetype = c('dashed')) +
+  geom_hline(yintercept = -log10(0.05), 
+             color = 'gray40', 
+             linetype = 'dashed') +
+  labs(x = 'Difference in % Methylation (SPFKO - GF)',
+       y = '-Log10 PValue') +
+  coord_cartesian(xlim = c(-60, 60)) +
+  theme_classic() +
+  theme(axis.title = element_text(size = 16),
+        strip.text.x = element_text(size = 12),
+        axis.text.x = element_text(size = 12),
+        legend.position = 'none')
+ggsave('spfko-gf_volcano.png', width = 8, height = 8)
+ggsave('spfko-gf_volcano.pdf', width = 8, height = 8)
+ggsave('spfko-gf_volcano.tiff', width = 8, height = 8)
 ```
 
 #### Stacked CpG Location Bar Plots

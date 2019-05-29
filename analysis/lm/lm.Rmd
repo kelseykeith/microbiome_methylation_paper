@@ -1,0 +1,112 @@
+---
+output: html_document
+---
+
+```{r setup}
+library(tidyverse)
+library(conflicted)
+library(magrittr)
+library(broom)
+
+filter <- dplyr::filter
+
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## Methylation/Microbiome Interaction Linear Model
+
+We're looking at the effects on methylation by the microbiome and inflammation, both separately and together. We have DREAM data on mice with multiple conditions:
+
+- germ free (gf)
+- specific pathogen free (spf)
+- germ free, IL10 knock out (gfko)
+- specific pathogen free, IL10 knock out (spfko)
+- specific pathogen free, azoxymethane (spfaom)
+- germ free, IL10 knock out, azoxymethane (gfkoaom)
+- specific pathogen free, IL10 knock out, azoxymethane (spfkoaom)
+
+-
+
+The design matrix for the linear models is below.
+
+| Sample | microbiome | inflammation | cancer |
+| --- | --- | --- | --- |
+| GF | 0 | 0 | 0 |
+| SPF | 1 | 0 | 0 |
+| GFKO | 0 | 1 | 0 |
+| SPFKO | 1 | 1 | 0 |
+| SPFAOM | 1 | 0 | 1 |
+| GFKOAOM | 0 | 1 | 1 |
+| SPFKOAOM | 1 | 1 | 1 |
+
+### Wrangle Data
+
+```{r}
+# get file names
+files <- list.files(path = '../../data/dream_count_tbls/', 
+                    pattern = '*mc.txt', 
+                    full.names = T)
+
+# read files in recursively
+tibble(filename = files) %>%
+  mutate(file_contents = map(filename, ~ read_tsv(.))) %>%
+  unnest() %>%
+  mutate(microbiome = as.factor(ifelse(is.na(str_match(filename, 'G')), 
+                             1, 0)),
+         inflammation = as.factor(ifelse(is.na(str_match(filename, 'Ko')), 
+                               0, 1)),
+         drug = as.factor(ifelse(is.na(str_match(filename, 'Aom')),
+                       0, 1))) -> data
+
+# sanity check; should have same number of sites in all conditions because 
+# DREAM files list the same number of sma sites in them
+data %>% group_by(microbiome, inflammation, drug) %>% count()
+```
+
+### Linear Models
+
+#### Run the model
+
+```{r}
+### additive model
+data %>%
+# set up for filtering by coverage
+  mutate(great_100 = ifelse(t >= 100, 1, 0)) %>%
+# filter out the quality control "sites" and sex chromosomes
+  filter(str_detect(mm9_SmaI_ID, 'SmaI_mm9'),
+        chromosome != 'chrX', chromosome != 'chrY') %>%
+# filter for Sma sites that have >= 100 reads in at least 75% of samples
+  group_by(mm9_SmaI_ID) %>%
+  filter(sum(great_100) >= 32) %>%
+  ungroup() %>%
+# nest by Sma site so you can run linear models over each one
+  nest(-mm9_SmaI_ID) %>%
+# run the models
+  mutate(test = purrr::map(data, ~ try(lm(mc9 ~ microbiome + inflammation + drug, data = .)))) %>%
+# filter out any sites where the model fails
+  mutate(class = purrr::map(test, ~ class(.))) %>%
+  unnest(class) %>%
+  filter(class != "try-error") %>%
+# tidy the models to return the final table
+  unnest(test = map2(test, mm9_SmaI_ID, ~tidy(.x, newdata = .y))) -> lms_add
+```
+
+#### Wrange Linear Model
+
+```{r}
+lms_add %>%
+# don't need the class column because it was solely for error handling
+  select(-class) %>%
+# the intercepts don't make biological sense, so filter them out
+  filter(term != '(Intercept)') %>%
+# adjust pvalues for multiple testing
+  mutate(qvalue = p.adjust(p.value, method = 'fdr')) -> lms_add_wrangled
+```
+
+#### Save
+
+```{r}
+write_tsv(lms_add_wrangled, 'lm.tsv')
+```
+
+

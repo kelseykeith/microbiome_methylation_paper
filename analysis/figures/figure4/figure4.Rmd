@@ -1,0 +1,827 @@
+---
+output: html_document
+---
+
+```{r setup, include=FALSE}
+# general packages
+library(tidyverse)
+library(conflicted)
+library(magrittr)
+
+# plotting packages
+library(viridis)
+library(wesanderson)
+library(UpSetR)
+library(cowplot)
+
+# modeling packages
+library(broom)
+
+# resolve package conflicts
+filter <- dplyr::filter
+
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## Figure 4: Relationship between Aging and the Other Variables
+
+Code for Figure 4 for the paper The Microbiome Modulates DNA Methylation in Mouse Colonic Mucosa
+
+### Wrangle Data
+
+#### Read Data
+
+These tables were created by a former graduate student in the lab, Lauren Cole, who performed t-tests for experimental condition vs. experimental condition in Excel and annotated the result tables with CpG location information.
+
+-
+
+Read in the data
+
+```{r}
+# get file names
+lauren_files <- list.files(path = '../../../data/lauren_volc_tbls', 
+                           pattern = '*.csv', 
+                           full.names = T)
+
+# read files in recursively
+tibble(filename = lauren_files) %>%
+# read in files recursively, adding on filename
+  mutate(file_contents = map(filename, ~ read_csv(.))) %>%
+# expand files into skinny table
+  unnest() %>%
+# select only needed columns (many extra annotation columns in these tables)
+  select(filename, ID, Chromosome, Mm9_SmaI_annotation_Position, 
+         Ave_Y, O.Y, AvgWT, KO.WT, AvgGF, SPF.GF, AvgN, AOM.N, ttest2, pttest2, 
+         inCpG, cgi.shore) -> lauren_data
+```
+
+-
+
+Read in the linear model results table. For code used to run the test, see `../../lm/lm.Rmd`
+
+```{r}
+read_tsv('../../lm/lm.tsv') -> lm
+```
+
+#### Wrangle data
+
+```{r}
+lauren_data %>%
+# separate the filename into component folders and parts with the ultimate goal
+# of using the filename to create a sample ID
+  separate(filename, into = c('folder1', 'folder2', 'folder3', 'folder4', 
+                              'folder5', 'filename'), 
+           sep = '/') %>%
+# drop the folder names because I don't need them
+  select(-(folder1:folder5)) %>% 
+# separate the file names into their main bodies and file extensions
+  separate(filename, into = c('file_prefix', 'file_extension'), sep = -4) %>% 
+# drop the file extensions because I don't need them; I know they're all CSVs
+  select(-file_extension) %>%
+# select everything from the filename up until the first _ and use that as the
+# sample ID
+  mutate(sample_id = str_extract(file_prefix, "[^_]+")) %>%
+# replace NAs, which are only in the methylation difference columns; this way I
+# can add them together to make a unified methylation difference column rather 
+# than using a complicate if or case_when statement
+  replace(is.na(.), 0) %>%
+# add the methylation difference columns together to make a unified methylation
+# difference column
+  mutate(meth_diff = O.Y + KO.WT + SPF.GF + AOM.N,
+# add a categorical column annotating the direction of methylation change for
+# easier counting later
+         baseline_meth = Ave_Y + AvgWT + AvgGF + AvgN,
+         baseline_anno = factor(case_when(baseline_meth <= 20 ~ 'Me < 20',
+                                   baseline_meth > 20 & 
+                                     baseline_meth < 80 ~ '20 < Me < 80',
+                                   baseline_meth >= 80 ~ 'Me > 80'),
+                                levels = c('Me < 20', '20 < Me < 80', 
+                                           'Me > 80')),
+         location_anno = case_when(inCpG == 'Y' ~ 'CGI',
+                                   cgi.shore == 1 ~ 'CGI shore',
+                                   TRUE ~ 'other'),
+         meth_change_0 = factor(ifelse(meth_diff < 0, 'hypo', 'hyper'), 
+                              levels = c('hypo', 'hyper')),
+         meth_change_5 = factor(case_when(meth_diff <= -5 ~ 'hypo', 
+                                          meth_diff >= 5 ~ 'hyper',
+                                          TRUE ~ 'no_change'), 
+                              levels = c('hypo', 'hyper', 'no_change')),
+# add a categorical column annotating whether the pvalue is significant or not
+# for easier counting later
+         significance = ifelse(ttest2 < 0.05, 'sig', 'notsig'),
+# add a categorical column annotating color for easy coloring on volcano plots
+         volc_color = ifelse(abs(meth_diff) >= 5 & ttest2 < 0.05, 
+                             'sig', 'notsig')) %>%
+# keep only the columns I need and rename some for better intuition/easier use 
+# down the line
+  select(sample_id, sma_id = ID, 
+         chrom = Chromosome, pos = Mm9_SmaI_annotation_Position, 
+         meth_diff, pvalue = ttest2, 
+         logpvalue = pttest2, meth_change_0, 
+         meth_change_5, significance, 
+         volc_color, baseline_meth, 
+         baseline_anno, location_anno) -> lauren_data_wrangled
+```
+
+Combine the aging data with the linear model data
+
+```{r}
+# find sets tested in both analyses
+lauren_data_wrangled %>%
+  filter(sample_id == 'aging') %>%
+  select(sma_id, term = sample_id, meth_diff, sig = pvalue) %>%
+  rbind(select(lm, sma_id = mm9_SmaI_ID, term, meth_diff = estimate, 
+         sig = qvalue)) %>% 
+  group_by(sma_id) %>% 
+  count() %>% 
+  ungroup() %>% 
+  filter(n == 4) -> site_whitelist
+
+# combine data together and filter for common test sites
+lauren_data_wrangled %>%
+  filter(sample_id == 'aging') %>%
+  select(sma_id, term = sample_id, meth_diff, sig = pvalue) %>%
+  rbind(select(lm, sma_id = mm9_SmaI_ID, term, meth_diff = estimate, 
+         sig = qvalue)) %>%
+  filter(sma_id %in% site_whitelist$sma_id) -> comb_data
+
+# save number and percentage of significant sites in each category in the 
+# combined dataset
+comb_data %>%
+  mutate(sig = case_when(sig < 0.05 & meth_diff < -5 ~ 'hypo',
+                         sig < 0.05 & meth_diff > 5 ~ 'hyper',
+                         TRUE ~ 'not_sig')) %>%
+  group_by(term, sig) %>%
+  count() %>%
+  ungroup() %>%
+  filter(sig != 'not_sig') %>%
+  spread(sig, n) %>%
+  mutate(perc_hyper = round(((hyper / 12172) * 100), 1),
+         perc_hypo = round(((hypo / 12172) * 100), 1)) %>%
+  select(term, hypo_count = hypo, perc_hypo, 
+         hyper_count = hyper, perc_hyper) %>%
+  write_tsv('age_upset_counts_percents.tsv')
+```
+
+### Volcano Plots
+
+#### Figure A: **Old - Young** Volcano plot
+
+Volcano plot of methylation differences due to age, old - young
+
+```{r, fig.width = 8, fig.height = 8}
+### volcano plot annotation
+lauren_data_wrangled %>% 
+  filter(sample_id == 'spfaom-spf') %>%
+  group_by(meth_change_5, volc_color) %>% 
+  count() %>% 
+  ungroup() %>%
+  filter(volc_color != 'notsig') %>%
+  mutate(meth_diff = c(30, -30), 
+         logpvalue = 9, 
+         label = paste0(n, 
+                        ', ', 
+                        round(((n / 12566) * 100), 1), 
+                        '%')) -> age_labels
+
+### plot
+lauren_data_wrangled %>% 
+  filter(sample_id == 'aging') %>%
+
+
+ggplot(aes(x = meth_diff, y = logpvalue)) +
+  geom_point(aes(color = volc_color), size = 1) +
+  scale_color_manual(values = c('gray60', 'darkcyan')) +
+  geom_text(data = age_labels, aes(label = label), size = 10) +
+  geom_vline(xintercept = c(-5, 5), 
+             color = 'gray40', 
+             linetype = c('dashed')) +
+  geom_hline(yintercept = -log10(0.05), 
+             color = 'gray40', 
+             linetype = 'dashed') +
+  labs(x = 'Difference in % Methylation (Old - Young)',
+       y = '-Log10 PValue',
+       title = 'A') +
+  coord_cartesian(xlim = c(-50, 50),
+                  ylim = c(0, 10)) +
+  theme_classic(base_size = 20) +
+  theme(legend.position = 'none')
+
+### save
+ggsave('aging_volcano.png', width = 8, height = 8)
+ggsave('aging_volcano.pdf', width = 8, height = 8)
+ggsave('aging_volcano.tiff', width = 8, height = 8)
+```
+
+### UpSet Plots
+
+#### Wrangle Data
+
+Annotate data for upset plots
+
+```{r}
+### hypOmethylated sites
+comb_data %>% 
+  filter(abs(meth_diff) >= 5, sig < 0.05) %>% 
+  dplyr::select(sma_id, term, meth_diff) %>%
+  spread(term, meth_diff) %>%
+  mutate(Azoxymethane = ifelse(drug1 <= -5, 1, 0),
+         IL10KO = ifelse(inflammation1 <= -5, 1, 0),
+         Microbiome = ifelse(microbiome1 <= -5, 1, 0),
+         Age = ifelse(aging <= -5, 1, 0)) %>%
+  replace(is.na(.), 0) %>%
+  select(sma_id, Azoxymethane:Age) %>%
+  as.data.frame() -> age_upset_hypo
+
+# save counts in table as well
+age_upset_hypo %>% 
+  group_by(Azoxymethane, IL10KO, Microbiome, Age) %>%
+  count() %>%
+  ungroup() %>%
+  mutate(percent_of_total_sites = round(((n / 12566) * 100), 1)) %>%
+# add in the empty intersection that's not present in the table
+  rbind(tibble(Azoxymethane = 0, IL10KO = 1, Microbiome = 0, Age = 1, 
+               n = 0, percent_of_total_sites = 0)) %>%
+# re-sort nicely
+  arrange(Azoxymethane) %>%
+  write_tsv('age_upset_hypo_counts_percents.tsv')
+```
+
+```{r}
+### hypERmethylated sites
+comb_data %>% 
+  filter(abs(meth_diff) >= 5, sig < 0.05) %>% 
+  dplyr::select(sma_id, term, meth_diff) %>%
+  spread(term, meth_diff) %>%
+  mutate(Azoxymethane = ifelse(drug1 >= 5, 1, 0),
+         IL10KO = ifelse(inflammation1 >= 5, 1, 0),
+         Microbiome = ifelse(microbiome1 >= 5, 1, 0),
+         Age = ifelse(aging >= 5, 1, 0)) %>%
+  replace(is.na(.), 0) %>%
+  select(sma_id, Azoxymethane:Age) %>%
+  as.data.frame() -> age_upset_hyper
+
+# save counts in table as well
+age_upset_hyper %>% 
+  group_by(Azoxymethane, IL10KO, Microbiome, Age) %>%
+  count() %>%
+  ungroup() %>%
+  mutate(percent_of_total_sites = round(((n / 12566) * 100), 1)) %>%
+  write_tsv('age_upset_hyper_counts_percents.tsv')
+```
+
+#### Figure B: Hypomethylated Sites
+
+```{r}
+### hypOmethylated sites
+# as png
+png('age_upset_hypo_emptyintersect.png')
+upset(age_upset_hypo,
+      sets = c('Age', 'Microbiome', 'IL10KO', 'Azoxymethane'),
+      keep.order = T,
+      order.by = 'degree',
+      main.bar.color = 'dodgerblue3',
+      mainbar.y.label = '',
+      point.size = 4,
+      text.scale = c(1, 2, 1, 2, 2, 2),
+      empty.intersections = T)
+dev.off()
+
+# as pdf
+pdf('age_upset_hypo_emptyintersect.pdf', onefile = FALSE)
+upset(age_upset_hypo,
+      sets = c('Age', 'Microbiome', 'IL10KO', 'Azoxymethane'),
+      keep.order = T,
+      order.by = 'degree',
+      main.bar.color = 'dodgerblue3',
+      mainbar.y.label = '',
+      point.size = 4,
+      text.scale = c(1, 2, 1, 2, 2, 2),
+      empty.intersections = T)
+dev.off()
+
+# as tiff
+tiff('age_upset_hypo.tiff')
+upset(age_upset_hypo,
+      sets = c('Age', 'Microbiome', 'IL10KO', 'Azoxymethane'),
+      keep.order = T,
+      order.by = 'degree',
+      main.bar.color = 'dodgerblue3',
+      mainbar.y.label = '',
+      point.size = 4,
+      text.scale = c(1, 2, 1, 2, 2, 2),
+      empty.intersections = T)
+dev.off()
+```
+
+#### Figure C: Hypermethylated Sites
+
+```{r}
+### hypERmethylated sites
+# as png
+png('age_upset_hyper.png')
+upset(age_upset_hyper,
+      sets = c('Age', 'Microbiome', 'IL10KO', 'Azoxymethane'),
+      keep.order = T,
+      order.by = 'degree',
+      main.bar.color = 'firebrick4',
+      mainbar.y.label = '',
+      text.scale = c(1, 2, 1, 2, 2, 2))
+dev.off()
+
+# as pdf
+pdf('age_upset_hyper.pdf', onefile = FALSE)
+upset(age_upset_hyper,
+      sets = c('Age', 'Microbiome', 'IL10KO', 'Azoxymethane'),
+      keep.order = T,
+      order.by = 'degree',
+      main.bar.color = 'firebrick4',
+      mainbar.y.label = '',
+      text.scale = c(1, 2, 1, 2, 2, 2))
+dev.off()
+
+# as tiff,
+tiff('age_upset_hyper.tiff')
+upset(age_upset_hyper,
+      sets = c('Age', 'Microbiome', 'IL10KO', 'Azoxymethane'),
+      keep.order = T,
+      order.by = 'degree',
+      main.bar.color = 'firebrick4',
+      mainbar.y.label = '',
+      text.scale = c(1, 2, 1, 2, 2, 2))
+dev.off()
+```
+
+### Scatter Plots: How Age Trends with Linear Model Terms
+
+#### Wrangle Data
+
+```{r}
+comb_data %>%
+  filter(term != 'drug1') %>%
+  dplyr::select(sma_id, term, meth_diff) %>%
+  spread(term, meth_diff) %>%
+  dplyr::rename(aging_meth_diff = aging, 
+         inflammation_meth_diff = inflammation1,
+         microbiome_meth_diff = microbiome1) -> wide_meth_diff
+
+comb_data %>%
+  filter(term != 'drug1') %>%
+  dplyr::select(sma_id, term, sig) %>%
+  spread(term, sig) %>%
+  dplyr::rename(aging_pvalue = aging, 
+         inflammation_qvalue = inflammation1,
+         microbiome_qvalue = microbiome1) -> wide_sig
+
+left_join(wide_meth_diff, wide_sig) -> wide_data
+```
+
+#### Figure D: Significant Aging Sites
+
+##### Text Annotations
+
+Find significant **Aging Sites**
+
+```{r}
+wide_data %>%
+  filter(abs(aging_meth_diff) >= 5,
+         aging_pvalue < 0.05) %>%
+  gather(lm_term, lm_meth_diff,
+         inflammation_meth_diff:microbiome_meth_diff) %>%
+  mutate(lm_term = ifelse(lm_term == 'microbiome_meth_diff',
+                           'microbiome', 'inflammation')) -> age_sig
+```
+
+Calculate and save **IL10ko** annotations
+
+```{r}
+### inflammation
+# correlation/r value for annotating the plot
+age_sig %>%
+  filter(lm_term == 'inflammation') %$%
+  cor.test(lm_meth_diff, aging_meth_diff) %>%
+  tidy() %>%
+  mutate(lm_term = 'inflammation',
+         round_value = round(estimate, 2),
+         label = 'r = ',
+         lm_meth_diff = 30,
+         aging_meth_diff = 40) %>%
+  unite(anno, label, round_value, sep = '') %>%
+  dplyr::select(lm_term, anno, lm_meth_diff, 
+                aging_meth_diff) -> age_sig_inflam_cor
+
+# pvalue for annotating the plot
+age_sig %>%
+  filter(lm_term == 'inflammation') %$%
+  cor.test(lm_meth_diff, aging_meth_diff) %>%
+  tidy() %>%
+  mutate(lm_term = 'inflammation',
+         round_value = formatC(p.value, format = 'e', digits = 2),
+         label = 'p = ',
+         lm_meth_diff = 27,
+         aging_meth_diff = 40) %>%
+  unite(anno, label, round_value, sep = '') %>%
+  dplyr::select(lm_term, anno, lm_meth_diff, 
+                aging_meth_diff) -> age_sig_inflam_pvalue
+
+# slope for annotating the plot
+age_sig %>%
+  filter(lm_term == 'inflammation') %>%
+  lm(lm_meth_diff ~ aging_meth_diff, data = .) %>%
+  tidy() %>%
+  filter(term != '(Intercept)') %>%
+  mutate(lm_term = 'inflammation',
+         round_value = round(estimate, 2),
+         label = 'slope = ',
+         lm_meth_diff = 24,
+         aging_meth_diff = 40) %>%
+  unite(anno, label, round_value, sep = '') %>%
+  dplyr::select(lm_term, anno, lm_meth_diff, 
+                aging_meth_diff) -> age_sig_inflam_slope
+```
+
+Calculate and save **microbiome** annotations
+
+```{r}
+### microbiome
+# correlation/r value for annotating the plot
+age_sig %>%
+  filter(lm_term == 'microbiome') %$%
+  cor.test(lm_meth_diff, aging_meth_diff) %>%
+  tidy() %>%
+  mutate(lm_term = 'microbiome',
+         round_value = round(estimate, 2),
+         label = 'r = ',
+         lm_meth_diff = 30,
+         aging_meth_diff = 40) %>%
+  unite(anno, label, round_value, sep = '') %>%
+  dplyr::select(lm_term, anno, lm_meth_diff, 
+                aging_meth_diff) -> age_sig_micro_cor
+
+# pvalue for annotating the plot
+age_sig %>%
+  filter(lm_term == 'microbiome') %$%
+  cor.test(lm_meth_diff, aging_meth_diff) %>%
+  tidy() %>%
+  mutate(lm_term = 'microbiome',
+         round_value = formatC(p.value, format = 'e', digits = 2),
+         label = 'p = ',
+         lm_meth_diff = 27,
+         aging_meth_diff = 40) %>%
+  unite(anno, label, round_value, sep = '') %>%
+  dplyr::select(lm_term, anno, lm_meth_diff, 
+                aging_meth_diff) -> age_sig_micro_pvalue
+
+# slope for annotating the plot
+age_sig %>%
+  filter(lm_term == 'microbiome') %>%
+  lm(lm_meth_diff ~ aging_meth_diff, data = .) %>%
+  tidy() %>%
+  filter(term != '(Intercept)') %>%
+  mutate(lm_term = 'microbiome',
+         round_value = round(estimate, 2),
+         label = 'slope = ',
+         lm_meth_diff = 24,
+         aging_meth_diff = 40) %>%
+  unite(anno, label, round_value, sep = '') %>%
+  dplyr::select(lm_term, anno, lm_meth_diff, 
+                aging_meth_diff) -> age_sig_micro_slope
+```
+
+Combine into one annotation table
+
+```{r}
+rbind(age_sig_inflam_cor, age_sig_inflam_pvalue, 
+      age_sig_inflam_slope,
+      age_sig_micro_cor, age_sig_micro_pvalue, 
+      age_sig_micro_slope) -> age_sig_anno
+```
+
+##### Inset Count Tables
+
+Get the counts in one table
+
+```{r}
+age_sig %>%
+  mutate(aging_direction = factor(ifelse(aging_meth_diff < 0, 'hypo', 'hyper'),
+                                  levels = c('hypo', 'hyper')),
+         lm_direction = factor(ifelse(lm_meth_diff< 0, 'hypo', 'hyper'),
+                               levels = c('hypo', 'hyper'))) %>%
+  group_by(lm_term, aging_direction, lm_direction) %>%
+  count() %>%
+  ungroup() -> confusion_counts_AGEsig
+```
+
+Plot the count table for the **microbiome**
+
+```{r}
+### microbiome
+confusion_counts_AGEsig %>% 
+  filter(lm_term == 'microbiome') %>%
+
+
+ggplot(aes(x = aging_direction, y = lm_direction, fill = n)) +
+  geom_tile(color = 'black', size = 0.5) +
+  scale_fill_gradient('count', low = "white", high = "white") +
+  geom_text(aes(x = aging_direction, y = lm_direction, label = n), 
+            color = "black") +
+  labs(x = 'Age', y = 'Microbiome') +
+  theme_classic() +
+  theme(legend.position = 'none',
+        axis.title = element_blank(),
+        axis.text = element_blank(),
+        axis.ticks = element_blank(),
+        axis.line = element_blank()) -> age_micro_cm
+```
+
+Plot the count table for the **IL10ko**
+
+```{r}
+### inflammation confusion matrix
+confusion_counts_AGEsig %>% 
+  filter(lm_term == 'inflammation') %>%
+
+
+ggplot(aes(x = aging_direction, y = lm_direction, fill = n)) +
+  geom_tile(color = 'black', size = 0.5) +
+  scale_fill_gradient('count', low = "white", high = "white") +
+  geom_text(aes(x = aging_direction, y = lm_direction, label = n), 
+            color = "black") +
+  labs(x = 'Age', y = 'IL10') +
+  theme_classic() +
+  theme(legend.position = 'none',
+        axis.title = element_blank(),
+        axis.text = element_blank(),
+        axis.ticks = element_blank(),
+        axis.line = element_blank()) -> age_inflam_cm
+```
+
+##### Plot the scatterplot
+
+```{r, fig.width = 8, fig.height = 4.5}
+### plot
+ggplot(age_sig, aes(x = aging_meth_diff, y = lm_meth_diff)) +
+  geom_point(size = 1) +
+  geom_smooth(method = 'lm', se = F, 
+              color = rep(c('firebrick3', 'deepskyblue3'), each = 80)) +
+  geom_text(data = age_sig_anno, aes(label = anno)) + 
+  facet_wrap(~ lm_term) +
+  labs(x = 'Change in % Methylation - Age (Old - Young)', 
+     y = 'Sma Site Linear Model Slope',
+     title = 'D') +
+  theme_classic(base_size = 20) +
+  theme(legend.position = 'none') -> age_lm_scatter
+```
+
+##### Combine count tables, annotations and the scatterplots to make the final figure
+
+```{r, fig.width = 8, fig.height = 4.5}
+ggdraw() +
+  draw_plot(age_lm_scatter, 0, 0, 1, 1) +
+  draw_plot(age_micro_cm + theme(legend.position = 'none', 
+                                  axis.text = element_blank(),
+                                  axis.ticks = element_blank(),
+                                  axis.line = element_blank(),
+                                  axis.title = element_blank()), 
+            x = 0.83, y = 0.18, 0.15, 0.15) +
+  draw_plot(age_inflam_cm + theme(legend.position = 'none', 
+                                  axis.text = element_blank(),
+                                  axis.ticks = element_blank(),
+                                  axis.line = element_blank(),
+                                  axis.title = element_blank()), 
+            x = 0.37, y = 0.18, 0.15, 0.15)
+
+ggsave('age_scatterplot_w_embed_nocolor.png', width = 8, height = 4.5)
+ggsave('age_scatterplot_w_embed_nocolor.pdf', width = 8, height = 4.5)
+ggsave('age_scatterplot_w_embed_nocolor.tiff', width = 8, height = 4.5)
+```
+
+#### Figure E: Significant Linear Model Sites
+
+##### Text Annotations
+
+Find significant **Microbiome/IL10 Sites**. The sites must be significant for both conditions.
+
+```{r}
+wide_data %>%
+  filter(abs(inflammation_meth_diff) >= 5,
+         inflammation_qvalue < 0.05,
+         abs(microbiome_meth_diff) >= 5,
+         microbiome_qvalue < 0.05) %>%
+  gather(lm_term, lm_meth_diff,
+         inflammation_meth_diff:microbiome_meth_diff) %>%
+  mutate(lm_term = ifelse(lm_term == 'microbiome_meth_diff',
+                           'microbiome', 
+                          'inflammation')) -> micro_inflam_both_sig
+```
+
+Calculate and save **IL10ko** annotations
+
+```{r}
+### inflammation
+# correlation/r value for annotating the plot
+micro_inflam_both_sig %>%
+  filter(lm_term == 'inflammation') %$%
+  cor.test(lm_meth_diff, aging_meth_diff) %>%
+  tidy() %>%
+  mutate(lm_term = 'inflammation',
+         round_value = round(estimate, 2),
+         label = 'r = ',
+         lm_meth_diff = 26,
+         aging_meth_diff = 50) %>%
+  unite(anno, label, round_value, sep = '') %>%
+  select(lm_term, anno, lm_meth_diff, aging_meth_diff) -> mi_sig_inflam_cor
+
+# pvalue for annotating the plot
+micro_inflam_both_sig %>%
+  filter(lm_term == 'inflammation') %$%
+  cor.test(lm_meth_diff, aging_meth_diff) %>%
+  tidy() %>%
+  mutate(lm_term = 'inflammation',
+         round_value = formatC(p.value, format = 'e', digits = 2),
+         label = 'p = ',
+         lm_meth_diff = 26,
+         aging_meth_diff = 45) %>%
+  unite(anno, label, round_value, sep = '') %>%
+  select(lm_term, anno, lm_meth_diff, aging_meth_diff) -> mi_sig_inflam_pvalue
+
+# slope for annotating the plot
+micro_inflam_both_sig %>%
+  filter(lm_term == 'inflammation') %>%
+  lm(aging_meth_diff ~ lm_meth_diff, data = .) %>%
+  tidy() %>%
+  filter(term != '(Intercept)') %>%
+  mutate(lm_term = 'inflammation',
+         round_value = round(estimate, 2),
+         label = 'slope = ',
+         lm_meth_diff = 26,
+         aging_meth_diff = 40) %>%
+  unite(anno, label, round_value, sep = '') %>%
+  select(lm_term, anno, lm_meth_diff, aging_meth_diff) -> mi_sig_inflam_slope
+```
+
+Calculate and save **microbiome** annotations
+
+```{r}
+### microbiome
+# correlation/r value for annotating the plot
+micro_inflam_both_sig %>%
+  filter(lm_term == 'microbiome') %$%
+  cor.test(lm_meth_diff, aging_meth_diff) %>%
+  tidy() %>%
+  mutate(lm_term = 'microbiome',
+         round_value = round(estimate, 2),
+         label = 'r = ',
+         lm_meth_diff = 26,
+         aging_meth_diff = 50) %>%
+  unite(anno, label, round_value, sep = '') %>%
+  select(lm_term, anno, lm_meth_diff, aging_meth_diff) -> mi_sig_micro_cor
+
+# pvalue for annotating the plot
+micro_inflam_both_sig %>%
+  filter(lm_term == 'microbiome') %$%
+  cor.test(lm_meth_diff, aging_meth_diff) %>%
+  tidy() %>%
+  mutate(lm_term = 'microbiome',
+         round_value = formatC(p.value, format = 'e', digits = 2),
+         label = 'p = ',
+         lm_meth_diff = 26,
+         aging_meth_diff = 45) %>%
+  unite(anno, label, round_value, sep = '') %>%
+  select(lm_term, anno, lm_meth_diff, aging_meth_diff) -> mi_sig_micro_pvalue
+
+# slope for annotating the plot
+micro_inflam_both_sig %>%
+  filter(lm_term == 'microbiome') %>%
+  lm(aging_meth_diff ~ lm_meth_diff, data = .) %>%
+  tidy() %>%
+  filter(term != '(Intercept)') %>%
+  mutate(lm_term = 'microbiome',
+         round_value = round(estimate, 2),
+         label = 'slope = ',
+         lm_meth_diff = 26,
+         aging_meth_diff = 40) %>%
+  unite(anno, label, round_value, sep = '') %>%
+  select(lm_term, anno, lm_meth_diff, aging_meth_diff) -> mi_sig_micro_slope
+```
+
+Combine into one annotation table
+
+```{r}
+rbind(mi_sig_inflam_cor, mi_sig_inflam_pvalue, 
+      mi_sig_inflam_slope,
+      mi_sig_micro_cor, mi_sig_micro_pvalue, 
+      mi_sig_micro_slope) -> micro_inflam_both_sig_anno
+```
+
+##### Inset Count Tables
+
+Get the counts in one table
+
+```{r}
+micro_inflam_both_sig %>%
+  mutate(aging_direction = factor(ifelse(aging_meth_diff < 0, 'hypo', 'hyper'),
+                                  levels = c('hypo', 'hyper')),
+         lm_direction = factor(ifelse(lm_meth_diff< 0, 'hypo', 'hyper'),
+                               levels = c('hypo', 'hyper'))) %>%
+  group_by(lm_term, aging_direction, lm_direction) %>%
+  count() %>%
+  ungroup() -> confusion_counts_micro_inflam_BOTH_sig
+```
+
+Plot the count table for the **microbiome**
+
+```{r}
+### microbiome
+confusion_counts_micro_inflam_BOTH_sig %>% 
+  filter(lm_term == 'microbiome') %>%
+
+
+ggplot(aes(x = lm_direction, y = aging_direction, fill = n)) +
+  geom_tile(color = 'black', size = 0.5) +
+  scale_fill_gradient('count', low = "white", high = "white") +
+  geom_text(aes(x = lm_direction, y = aging_direction, label = n), 
+            color = "black") +
+  labs(x = 'Microbiome', y = 'Age') +
+  theme_classic() + 
+  theme(legend.position = 'none',
+        axis.title = element_blank(),
+        axis.text = element_blank(),
+        axis.ticks = element_blank(),
+        axis.line = element_blank()) -> micro_age_cm
+```
+
+Plot the count table for the **IL10ko**
+
+```{r}
+### inflammation confusion matrix
+confusion_counts_micro_inflam_BOTH_sig %>% 
+  filter(lm_term == 'inflammation') %>%
+
+
+ggplot(aes(x = lm_direction, y = aging_direction, fill = n)) +
+  geom_tile(color = 'black', size = 0.5) +
+  scale_fill_gradient('count', low = "white", high = "white") +
+  geom_text(aes(x = lm_direction, y = aging_direction, label = n), 
+            color = "black") +
+  labs(x = 'IL10', y = 'Age') +
+  theme_classic() + 
+  theme(legend.position = 'none',
+        axis.title = element_blank(),
+        axis.text = element_blank(),
+        axis.ticks = element_blank(),
+        axis.line = element_blank()) -> inflam_age_cm
+```
+
+##### Plot the scatterplot
+
+```{r}
+### plot
+ggplot(micro_inflam_both_sig, aes(x = lm_meth_diff, y = aging_meth_diff)) +
+  geom_point() +
+  geom_smooth(method = 'lm', se = F, 
+              color = rep(c('firebrick3', 'deepskyblue3'), each = 80)) +
+  geom_text(data = micro_inflam_both_sig_anno, aes(label = anno)) + 
+  facet_wrap(~ lm_term) +
+  labs(x = 'Sma Site Linear Model Slope',
+       y = 'Change in % Methylation\nAge (Old - Young)',
+       title = 'E') +
+  theme_classic(base_size = 20) +
+  theme(legend.position = 'none') -> lm_age_scatter
+
+### save
+# ggsave('micro_inflam_sig_BOTH_scatterplot.png', width = 8, height = 4.5)
+# ggsave('micro_inflam_sig_BOTH_scatterplot.pdf', width = 8, height = 4.5)
+# ggsave('micro_inflam_sig_BOTH_scatterplot.tiff', width = 8, height = 4.5)
+```
+
+##### Combine count tables, annotations and the scatterplots to make the final figure
+
+```{r, fig.width = 8, fig.height = 4.5}
+ggdraw() +
+  draw_plot(lm_age_scatter, 0, 0, 1, 1) +
+  draw_plot(micro_age_cm + theme(legend.position = 'none', 
+                                  axis.text = element_blank(),
+                                  axis.ticks = element_blank(),
+                                  axis.line = element_blank(),
+                                  axis.title = element_blank()), 
+            x = 0.6, y = 0.55, 0.15, 0.15) +
+  draw_plot(inflam_age_cm + theme(legend.position = 'none', 
+                                  axis.text = element_blank(),
+                                  axis.ticks = element_blank(),
+                                  axis.line = element_blank(),
+                                  axis.title = element_blank()), 
+            x = 0.2, y = 0.55, 0.15, 0.15)
+ggsave('micro_inflam_sig_BOTH_scatterplot_w_embed_nocolor.png', width = 8, height = 4.5)
+ggsave('micro_inflam_sig_BOTH_scatterplot_w_embed_nocolor.pdf', width = 8, height = 4.5)
+ggsave('micro_inflam_sig_BOTH_scatterplot_w_embed_nocolor.tiff', width = 8, height = 4.5)
+```
+
+---
+
+```{r}
+sessionInfo()
+```
+
+<br><br>
+

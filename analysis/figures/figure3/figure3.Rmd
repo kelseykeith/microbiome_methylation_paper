@@ -1,0 +1,249 @@
+---
+output: html_document
+---
+
+```{r setup, include=FALSE}
+# general packages
+library(tidyverse)
+library(conflicted)
+library(magrittr)
+
+# plotting packages
+library(viridis)
+library(wesanderson)
+library(UpSetR)
+
+# resolve package conflicts
+filter <- dplyr::filter
+
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## Figure 3: Linear Model
+
+Code for Figure 3 for the paper The Microbiome Modulates DNA Methylation in Mouse Colonic Mucosa
+
+### Wrangle Data
+
+#### Read Data
+
+Read in the linear model results table. For code used to run the test, see `../../lm/lm.Rmd`
+
+```{r}
+read_tsv('../../lm/lm.tsv') -> lm
+```
+
+#### Wrangle Data
+
+For **volcano plots**
+
+```{r}
+lm %>%
+# log the qvalues for easier volcano plotting
+  mutate(logqvalue = -log10(qvalue), 
+# annotate the direction of change to count sites for volcano plot annotation
+         change = ifelse(estimate < 0, 'hypo', 'hyper'),
+# add a categorical column for easy volcano plot coloring
+         volc_color = case_when((qvalue < 0.05 & abs(estimate) >= 5) & 
+                                  term == 'inflammation1' ~ 'sig_inf',
+                                (qvalue < 0.05 & abs(estimate) >= 5) & 
+                                  term == 'microbiome1' ~ 'sig_mic',
+                                (qvalue < 0.05 & abs(estimate) >= 5) & 
+                                  term == 'drug1' ~ 'sig_drug',
+                                TRUE ~ 'notsig'),
+# add a categorical column for better facet names
+         facets = case_when(term == 'inflammation1' ~ 'IL10KO',
+                            term == 'microbiome1' ~ 'Microbiome',
+                            term == 'drug1' ~ 'Azoxymethane')) -> lm_volc
+```
+
+For **UpSet plots**. The UpSet plot needs binary columns, 0/1, indicating whether the sma site is significant under that condition
+
+```{r}
+### hypOmethylated sites
+lm_volc %>%
+  filter(abs(estimate) >= 5) %>%
+  mutate(term_change = case_when(term == 'microbiome1' & 
+                                   estimate <= -5 ~ 'Microbiome_hypo',
+                                 term == 'inflammation1' & 
+                                   estimate <= -5 ~ 'IL10KO_hypo',
+                                 term == 'drug1' & 
+                                   estimate <= -5 ~ 'Azoxymethane_hypo',
+                                 TRUE ~ 'hyper')) %>%
+  filter(term_change != 'hyper') %>%
+  select(mm9_SmaI_ID, term_change, qvalue) %>%
+  spread(term_change, qvalue) %>%
+  replace(is.na(.), 1) %>%
+  mutate(Azoxymethane = ifelse(Azoxymethane_hypo < 0.05, 1, 0),
+         IL10KO = ifelse(IL10KO_hypo < 0.05, 1, 0),
+         Microbiome = ifelse(Microbiome_hypo < 0.05, 1, 0)) %>%
+  as.data.frame() -> lm_upset_hypo
+
+# save counts in table as well
+lm_upset_hypo %>% 
+  group_by(Azoxymethane, IL10KO, Microbiome) %>%
+  count() %>%
+  ungroup() %>%
+  mutate(percent_of_total_sites = round(((n / 12566) * 100), 1)) %>%
+  write_tsv('lm_upset_hypo_counts_percents.tsv')
+
+### hypERmethylated sites
+lm_volc %>%
+  filter(abs(estimate) >= 5) %>%
+  mutate(term_change = case_when(term == 'microbiome1' & 
+                                   estimate >= 5 ~ 'Microbiome_hyper',
+                                 term == 'inflammation1' & 
+                                   estimate >= 5 ~ 'IL10KO_hyper',
+                                 term == 'drug1' & 
+                                   estimate >= 5 ~ 'Azoxymethane_hyper',
+                                 TRUE ~ 'hypo')) %>%
+  filter(term_change != 'hypo') %>%
+  select(mm9_SmaI_ID, term_change, qvalue) %>%
+  spread(term_change, qvalue) %>%
+  replace(is.na(.), 1) %>%
+  mutate(Azoxymethane = ifelse(Azoxymethane_hyper < 0.05, 1, 0),
+         IL10KO = ifelse(IL10KO_hyper < 0.05, 1, 0),
+         Microbiome = ifelse(Microbiome_hyper < 0.05, 1, 0),) %>%
+  as.data.frame() -> lm_upset_hyper
+
+# save counts in table as well
+lm_upset_hyper %>% 
+  group_by(Azoxymethane, IL10KO, Microbiome) %>%
+  count() %>%
+  ungroup() %>%
+  mutate(percent_of_total_sites = round(((n / 12566) * 100), 1)) %>%
+  write_tsv('lm_upset_hyper_counts_percents.tsv')
+```
+
+#### Volcano Plots
+
+```{r, fig.width = 8, fig.height = 6}
+### volcano plot annotation
+lm_volc %>% 
+  group_by(facets, change, volc_color) %>% 
+  count() %>% 
+  ungroup() %>%
+  filter(volc_color != 'notsig') %>%
+  mutate(perc = round(((n / 12566) * 100), 1),
+         estimate = rep(c(20, -20), 3), logqvalue = 12, 
+         term = rep(c('Azoxymethane', 'IL10KO', 'Microbiome'), each = 2),
+         sign = '%') %>%
+  unite(anno, n, perc, sep = ', ') %>%
+  unite(anno, anno, sign, sep = '') -> lm_volc_counts
+
+### plot
+ggplot(lm_volc, aes(x = estimate, y = logqvalue)) + 
+  geom_point(aes(color = volc_color), size = 1) + 
+  scale_color_manual(values = c('gray60', 'darkorange2', 
+                                'firebrick3', 'deepskyblue3')) +
+  geom_hline(yintercept = -log10(0.05), 
+             linetype = 'dashed', 
+             color = 'gray30') +
+  geom_vline(xintercept = c(-5, 5), 
+             linetype = 'dashed', 
+             color = 'gray30') +
+  geom_text(data = lm_volc_counts, aes(label = anno), size = 5) +
+  labs(x = 'Sma Site Linear Model Slope', 
+       y = '-Log10 QValue',
+       title = 'A') +
+  facet_wrap(. ~ facets) +
+  theme_classic(base_size = 20) +
+  theme(legend.position = 'none')
+
+### save
+ggsave('lm_slope_volc.png', width = 8, height = 6)
+ggsave('lm_slope_volc.pdf', width = 8, height = 6)
+ggsave('lm_slope_volc.tiff', width = 8, height = 6)
+```
+
+#### UpSet Plots
+
+UpSet plot for hypomethylated CpG sites.
+
+```{r, fig.width = 8, fig.height = 6}
+### significant hypOmethylated sites
+# as png
+png('lm_upset_hypo.png')
+upset(lm_upset_hypo, 
+      sets = c('Microbiome', 'IL10KO', 'Azoxymethane'),
+      keep.order = T,
+      order.by = 'degree',
+      main.bar.color = 'dodgerblue',
+      mainbar.y.label = '',
+      point.size = 4,
+      text.scale = c(1, 2, 1, 1.75, 2, 3))
+dev.off()
+
+# as pdf
+pdf('lm_upset_hypo.pdf', onefile = FALSE)
+upset(lm_upset_hypo, 
+      sets = c('Microbiome', 'IL10KO', 'Azoxymethane'),
+      keep.order = T,
+      order.by = 'degree',
+      main.bar.color = 'dodgerblue',
+      mainbar.y.label = '',
+      point.size = 4,
+      text.scale = c(1, 2, 1, 1.75, 2, 3))
+dev.off()
+
+# as tiff
+tiff('lm_upset_hypo.tiff')
+upset(lm_upset_hypo, 
+      sets = c('Microbiome', 'IL10KO', 'Azoxymethane'),
+      keep.order = T,
+      order.by = 'degree',
+      main.bar.color = 'dodgerblue',
+      mainbar.y.label = '',
+      point.size = 4,
+      text.scale = c(1, 2, 1, 1.75, 2, 3))
+dev.off()
+```
+
+UpSet plot for hypermethylated CpG sites
+
+```{r, fig.width = 8, fig.height = 6}
+### significant hypERmethylated sites
+# as png
+png('lm_upset_hyper.png')
+upset(lm_upset_hyper, 
+      sets = c('Microbiome', 'IL10KO', 'Azoxymethane'),
+      keep.order = T,
+      order.by = 'degree',
+      main.bar.color = 'firebrick3',
+      mainbar.y.label = '',
+      point.size = 4,
+      text.scale = c(1, 2, 1, 1.75, 2, 3))
+dev.off()
+
+# as pdf
+pdf('lm_upset_hyper.pdf', onefile = FALSE)
+upset(lm_upset_hyper, 
+      sets = c('Microbiome', 'IL10KO', 'Azoxymethane'),
+      keep.order = T,
+      order.by = 'degree',
+      main.bar.color = 'firebrick3',
+      mainbar.y.label = '',
+      point.size = 4,
+      text.scale = c(1, 2, 1, 1.75, 2, 3))
+dev.off()
+
+# as tiff
+tiff('lm_upset_hyper.tiff')
+upset(lm_upset_hyper, 
+      sets = c('Microbiome', 'IL10KO', 'Azoxymethane'),
+      keep.order = T,
+      order.by = 'degree',
+      main.bar.color = 'firebrick3',
+      mainbar.y.label = '',
+      point.size = 4,
+      text.scale = c(1, 2, 1, 1.75, 2, 3))
+dev.off()
+```
+
+### sessionInfo
+
+```{r}
+sessionInfo()
+```
+
+<br><br>

@@ -1,0 +1,219 @@
+---
+output: html_document
+---
+
+```{r setup, include=FALSE}
+# general packages
+library(tidyverse)
+library(conflicted)
+library(magrittr)
+
+# plotting packages
+library(viridis)
+library(wesanderson)
+
+# resolve package conflicts
+filter <- dplyr::filter
+
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## Figure 2: Effect of Azoxymethane on Methylation
+
+Code for Figure 2 for the paper The Microbiome Modulates DNA Methylation in Mouse Colonic Mucosa
+
+### Wrangle Data
+
+These tables were created by a former graduate student in the lab, Lauren Cole, who performed t-tests for experimental condition vs. experimental condition in Excel and annotated the result tables with CpG location information.
+
+-
+
+Read in the data
+
+```{r}
+# get file names
+lauren_files <- list.files(path = '../../../data/lauren_volc_tbls', 
+                           pattern = '*.csv', 
+                           full.names = T)
+
+# read files in recursively
+tibble(filename = lauren_files) %>%
+# read in files recursively, adding on filename
+  mutate(file_contents = map(filename, ~ read_csv(.))) %>%
+# expand files into skinny table
+  unnest() %>%
+# select only needed columns (many extra annotation columns in these tables)
+  select(filename, ID, Chromosome, Mm9_SmaI_annotation_Position, 
+         Ave_Y, O.Y, AvgWT, KO.WT, AvgGF, SPF.GF, AvgN, AOM.N, ttest2, pttest2, 
+         inCpG, cgi.shore) -> lauren_data
+```
+
+Wrangle data
+
+```{r}
+lauren_data %>%
+# separate the filename into component folders and parts with the ultimate goal
+# of using the filename to create a sample ID
+  separate(filename, into = c('folder1', 'folder2', 'folder3', 'folder4', 
+                              'folder5', 'filename'), 
+           sep = '/') %>%
+# drop the folder names because I don't need them
+  select(-(folder1:folder5)) %>% 
+# separate the file names into their main bodies and file extensions
+  separate(filename, into = c('file_prefix', 'file_extension'), sep = -4) %>% 
+# drop the file extensions because I don't need them; I know they're all CSVs
+  select(-file_extension) %>%
+# select everything from the filename up until the first _ and use that as the
+# sample ID
+  mutate(sample_id = str_extract(file_prefix, "[^_]+")) %>%
+# replace NAs, which are only in the methylation difference columns; this way I
+# can add them together to make a unified methylation difference column rather 
+# than using a complicate if or case_when statement
+  replace(is.na(.), 0) %>%
+# add the methylation difference columns together to make a unified methylation
+# difference column
+  mutate(meth_diff = O.Y + KO.WT + SPF.GF + AOM.N,
+# add a categorical column annotating the direction of methylation change for
+# easier counting later
+         baseline_meth = Ave_Y + AvgWT + AvgGF + AvgN,
+         baseline_anno = factor(case_when(baseline_meth <= 20 ~ 'Me < 20',
+                                   baseline_meth > 20 & 
+                                     baseline_meth < 80 ~ '20 < Me < 80',
+                                   baseline_meth >= 80 ~ 'Me > 80'),
+                                levels = c('Me < 20', '20 < Me < 80', 
+                                           'Me > 80')),
+         location_anno = case_when(inCpG == 'Y' ~ 'CGI',
+                                   cgi.shore == 1 ~ 'CGI shore',
+                                   TRUE ~ 'other'),
+         meth_change_0 = factor(ifelse(meth_diff < 0, 'hypo', 'hyper'), 
+                              levels = c('hypo', 'hyper')),
+         meth_change_5 = factor(case_when(meth_diff <= -5 ~ 'hypo', 
+                                          meth_diff >= 5 ~ 'hyper',
+                                          TRUE ~ 'no_change'), 
+                              levels = c('hypo', 'hyper', 'no_change')),
+# add a categorical column annotating whether the pvalue is significant or not
+# for easier counting later
+         significance = ifelse(ttest2 < 0.05, 'sig', 'notsig'),
+# add a categorical column annotating color for easy coloring on volcano plots
+         volc_color = ifelse(abs(meth_diff) >= 5 & ttest2 < 0.05, 
+                             'sig', 'notsig')) %>%
+# keep only the columns I need and rename some for better intuition/easier use 
+# down the line
+  select(sample_id, sma_id = ID, 
+         chrom = Chromosome, pos = Mm9_SmaI_annotation_Position, 
+         meth_diff, pvalue = ttest2, 
+         logpvalue = pttest2, meth_change_0, 
+         meth_change_5, significance, 
+         volc_color, baseline_meth, 
+         baseline_anno, location_anno) -> lauren_data_wrangled
+```
+
+### Volcano Plots
+
+#### Figure A: **SPFAOM - SPF** Volcano Plot
+
+Methylation differences between specific pathogen free mice treated with azoxymethane and specific pathogen free mice. Effect of the drug.
+
+```{r, fig.width = 8, fig.height = 8}
+### volcano plot annotation
+lauren_data_wrangled %>% 
+  filter(sample_id == 'spfaom-spf') %>%
+  group_by(meth_change_5, volc_color) %>% 
+  count() %>% 
+  ungroup() %>%
+  filter(volc_color != 'notsig') %>%
+  mutate(meth_diff = c(30, -30), 
+         logpvalue = 9, 
+         label = paste0(n, 
+                        ', ', 
+                        round(((n / 12566) * 100), 1
+                              ), 
+                        '%')) -> spfaomspf_labels
+
+### plot
+lauren_data_wrangled %>% 
+  filter(sample_id == 'spfaom-spf') %>%
+
+
+ggplot(aes(x = meth_diff, y = logpvalue)) +
+  geom_point(aes(color = volc_color), size = 1) +
+  scale_color_manual(values = c('gray60', 'darkcyan')) +
+  geom_text(data = spfaomspf_labels, aes(label = label), size = 10) +
+  geom_vline(xintercept = c(-5, 5), 
+             color = 'gray40', 
+             linetype = c('dashed')) +
+  geom_hline(yintercept = -log10(0.05), 
+             color = 'gray40', 
+             linetype = 'dashed') +
+  labs(x = 'Difference in % Methylation (SPFAOM - SPF)',
+       y = '-Log10 PValue',
+       title = 'A') +
+  coord_cartesian(xlim = c(-50, 50),
+                  ylim = c(0, 10)) +
+  theme_classic(base_size = 20) +
+  theme(legend.position = 'none')
+
+### save
+ggsave('spfaom-spf_volcano.png', width = 8, height = 8)
+ggsave('spfaom-spf_volcano.pdf', width = 8, height = 8)
+ggsave('spfaom-spf_volcano.tiff', width = 8, height = 8)
+```
+
+### Stacked CpG Location Bar Plots
+
+Count number of sites detected in each sample.
+
+```{r}
+lauren_data_wrangled %>%
+  group_by(sample_id) %>%
+  count() %>%
+  ungroup() %>%
+  rename(num_sites_detected = n) %>%
+  spread(sample_id, num_sites_detected) -> num_sites_detected
+```
+
+#### Figure B: **SPFAOM - SPF** Stacked CpG Location Bar Plots
+
+Location of significant CpG sites stratified by baseline methylation from the volcano plot between specific pathogen free mice treated with azoxymethane and specific pathogen free mice. 
+
+```{r,fig.width = 8, fig.height = 8}
+### filter / wrangle
+lauren_data_wrangled %>%
+# filter for sites in the given condition that significantly changed
+  filter(sample_id == 'spfaom-spf',
+         significance == 'sig',
+         meth_change_5 != 'no_change') %>%
+# calculate what proportion of the total sites the significant sites are,
+# grouped by their location in DN
+  group_by(significance, meth_change_5, location_anno, baseline_anno) %>%
+  count() %>%
+  ungroup() %>%
+  mutate(proportion = (n / num_sites_detected$`spfko-gf`)) %>%
+
+### plot
+ggplot(aes(x = meth_change_5, y = proportion, fill = location_anno)) +
+  geom_bar(stat = 'identity') +
+  scale_fill_viridis_d(direction = -1, option = 'cividis') +
+  facet_wrap(~ baseline_anno) +
+  labs(x = 'Direction of Methylation Change',
+       y = 'Proportion of Total Detectable Sites',
+       fill = '',
+       title = 'B') +
+  coord_cartesian(ylim = c(0, 0.06)) +
+  theme_classic(base_size = 20)
+
+### save
+ggsave('spfaom-spf_stacked_bar.png', width = 8, height = 8)
+ggsave('spfaom-spf_stacked_bar.pdf', width = 8, height = 8)
+ggsave('spfaom-spf_stacked_bar.tiff', width = 8, height = 8)
+```
+
+### sessionInfo
+
+```{r}
+sessionInfo()
+```
+
+<br><br>
+
+

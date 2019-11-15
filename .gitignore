@@ -1,2 +1,6 @@
 ### Ignore Mac OS X metadata files
 **/.DS_Store
+
+### folders to ignore
+analysis/figures/temp_scatterplot_confusion_matrices
+analysis/figures/upset_intersection_test

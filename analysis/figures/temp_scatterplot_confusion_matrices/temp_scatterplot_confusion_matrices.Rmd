@@ -195,7 +195,7 @@ age_sig %>%
   dplyr::select(lm_term, anno, lm_meth_diff, 
                 aging_meth_diff) -> age_sig_inflam_pvalue
 
-# slope for annotateing the plot
+# slope for annotating the plot
 age_sig %>%
   filter(lm_term == 'inflammation') %>%
   lm(lm_meth_diff ~ aging_meth_diff, data = .) %>%
@@ -584,7 +584,8 @@ ggsave('confusion_matrix_age_sig_inflammation.tiff', width = 7, height = 4.5)
 ### microbiome chi-squared
 confusion_counts_AGEsig %>% 
   filter(lm_term == 'microbiome') %$%
-  chisq.test(n)
+  chisq.test(n) %>%
+  tidy()
 ```
 
 ```{r}

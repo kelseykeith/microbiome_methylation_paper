@@ -63,6 +63,15 @@ tibble(filename = files) %>%
 data %>% group_by(microbiome, inflammation, drug) %>% count()
 ```
 
+```{r}
+data %>% 
+  filter(inflammation == 0, drug == 0, t >= 10) %>% 
+  group_by(filename) %>% 
+  count() %>%
+  ungroup() %>%
+  summarize(mean_num_sites = mean(n))
+```
+
 ### Linear Models
 
 #### Run the model
@@ -80,9 +89,11 @@ data %>%
   filter(sum(great_100) >= 32) %>%
   ungroup() %>%
 # nest by Sma site so you can run linear models over each one
-  nest(-mm9_SmaI_ID) %>%
+  nest(-mm9_SmaI_ID) %>% 
 # run the models
-  mutate(test = purrr::map(data, ~ try(lm(mc9 ~ microbiome + inflammation + drug, data = .)))) %>%
+  mutate(test = purrr::map(data, ~ try(lm(mc9 ~ 
+                                            microbiome + inflammation + drug, 
+                                          data = .)))) %>%
 # filter out any sites where the model fails
   mutate(class = purrr::map(test, ~ class(.))) %>%
   unnest(class) %>%
@@ -91,7 +102,7 @@ data %>%
   unnest(test = map2(test, mm9_SmaI_ID, ~tidy(.x, newdata = .y))) -> lms_add
 ```
 
-#### Wrange Linear Model
+#### Wrangle Linear Model
 
 ```{r}
 lms_add %>%

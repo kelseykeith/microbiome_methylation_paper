@@ -124,7 +124,7 @@ lauren_data_wrangled %>%
   count() %>% 
   ungroup() %>%
   filter(volc_color != 'notsig') %>%
-  mutate(meth_diff = c(30, -30), 
+  mutate(meth_diff = c(-30, 30), 
          logpvalue = 9, 
          label = paste0(n, 
                         ', ', 
@@ -168,7 +168,7 @@ lauren_data_wrangled %>%
   count() %>% 
   ungroup() %>%
   filter(volc_color != 'notsig') %>%
-  mutate(meth_diff = c(30, -30), 
+  mutate(meth_diff = c(-30, 30), 
          logpvalue = 9, 
          label = paste0(n, 
                         ', ', 
@@ -212,7 +212,7 @@ lauren_data_wrangled %>%
   count() %>% 
   ungroup() %>%
   filter(volc_color != 'notsig') %>%
-  mutate(meth_diff = c(30, -30), 
+  mutate(meth_diff = c(-30, 30), 
          logpvalue = 9, 
          label = paste0(n, 
                         ', ', 

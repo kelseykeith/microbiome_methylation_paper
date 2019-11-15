@@ -37,7 +37,7 @@ These tables were created by a former graduate student in the lab, Lauren Cole, 
 
 Read in the data
 
-```{r}
+```{r, message = FALSE}
 # get file names
 lauren_files <- list.files(path = '../../../data/lauren_volc_tbls', 
                            pattern = '*.csv', 
@@ -172,12 +172,12 @@ Volcano plot of methylation differences due to age, old - young
 ```{r, fig.width = 8, fig.height = 8}
 ### volcano plot annotation
 lauren_data_wrangled %>% 
-  filter(sample_id == 'spfaom-spf') %>%
+  filter(sample_id == 'aging') %>%
   group_by(meth_change_5, volc_color) %>% 
   count() %>% 
   ungroup() %>%
   filter(volc_color != 'notsig') %>%
-  mutate(meth_diff = c(30, -30), 
+  mutate(meth_diff = c(-30, 30), 
          logpvalue = 9, 
          label = paste0(n, 
                         ', ', 

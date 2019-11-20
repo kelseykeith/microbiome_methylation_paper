@@ -126,41 +126,12 @@ lauren_data %>%
 Combine the aging data with the linear model data
 
 ```{r}
-# find sets tested in both analyses
+# combine data together
 lauren_data_wrangled %>%
   filter(sample_id == 'aging') %>%
   select(sma_id, term = sample_id, meth_diff, sig = pvalue) %>%
   rbind(select(lm, sma_id = mm9_SmaI_ID, term, meth_diff = estimate, 
-         sig = qvalue)) %>% 
-  group_by(sma_id) %>% 
-  count() %>% 
-  ungroup() %>% 
-  filter(n == 4) -> site_whitelist
-
-# combine data together and filter for common test sites
-lauren_data_wrangled %>%
-  filter(sample_id == 'aging') %>%
-  select(sma_id, term = sample_id, meth_diff, sig = pvalue) %>%
-  rbind(select(lm, sma_id = mm9_SmaI_ID, term, meth_diff = estimate, 
-         sig = qvalue)) %>%
-  filter(sma_id %in% site_whitelist$sma_id) -> comb_data
-
-# save number and percentage of significant sites in each category in the 
-# combined dataset
-comb_data %>%
-  mutate(sig = case_when(sig < 0.05 & meth_diff < -5 ~ 'hypo',
-                         sig < 0.05 & meth_diff > 5 ~ 'hyper',
-                         TRUE ~ 'not_sig')) %>%
-  group_by(term, sig) %>%
-  count() %>%
-  ungroup() %>%
-  filter(sig != 'not_sig') %>%
-  spread(sig, n) %>%
-  mutate(perc_hyper = round(((hyper / 12172) * 100), 1),
-         perc_hypo = round(((hypo / 12172) * 100), 1)) %>%
-  select(term, hypo_count = hypo, perc_hypo, 
-         hyper_count = hyper, perc_hyper) %>%
-  write_tsv('age_upset_counts_percents.tsv')
+         sig = qvalue)) -> comb_data
 ```
 
 ### Volcano Plots
@@ -173,7 +144,8 @@ Volcano plot of methylation differences due to age, old - young
 ### volcano plot annotation
 lauren_data_wrangled %>% 
   filter(sample_id == 'aging') %>%
-  group_by(meth_change_5, volc_color) %>% 
+  add_count(name = 'sample_count') %>%
+  group_by(meth_change_5, volc_color, sample_count) %>% 
   count() %>% 
   ungroup() %>%
   filter(volc_color != 'notsig') %>%
@@ -181,7 +153,7 @@ lauren_data_wrangled %>%
          logpvalue = 9, 
          label = paste0(n, 
                         ', ', 
-                        round(((n / 12566) * 100), 1), 
+                        round(((n / sample_count) * 100), 1), 
                         '%')) -> age_labels
 
 ### plot
@@ -232,19 +204,7 @@ comb_data %>%
   replace(is.na(.), 0) %>%
   select(sma_id, Azoxymethane:Age) %>%
   as.data.frame() -> age_upset_hypo
-
-# save counts in table as well
-age_upset_hypo %>% 
-  group_by(Azoxymethane, IL10KO, Microbiome, Age) %>%
-  count() %>%
-  ungroup() %>%
-  mutate(percent_of_total_sites = round(((n / 12566) * 100), 1)) %>%
-# add in the empty intersection that's not present in the table
-  rbind(tibble(Azoxymethane = 0, IL10KO = 1, Microbiome = 0, Age = 1, 
-               n = 0, percent_of_total_sites = 0)) %>%
-# re-sort nicely
-  arrange(Azoxymethane) %>%
-  write_tsv('age_upset_hypo_counts_percents.tsv')
+write_tsv(age_upset_hypo, 'age_upset_hypo.tsv')
 ```
 
 ```{r}
@@ -260,14 +220,7 @@ comb_data %>%
   replace(is.na(.), 0) %>%
   select(sma_id, Azoxymethane:Age) %>%
   as.data.frame() -> age_upset_hyper
-
-# save counts in table as well
-age_upset_hyper %>% 
-  group_by(Azoxymethane, IL10KO, Microbiome, Age) %>%
-  count() %>%
-  ungroup() %>%
-  mutate(percent_of_total_sites = round(((n / 12566) * 100), 1)) %>%
-  write_tsv('age_upset_hyper_counts_percents.tsv')
+write_tsv(age_upset_hyper, 'age_upset_hyper.tsv')
 ```
 
 #### Figure B: Hypomethylated Sites
@@ -389,7 +342,8 @@ wide_data %>%
   gather(lm_term, lm_meth_diff,
          inflammation_meth_diff:microbiome_meth_diff) %>%
   mutate(lm_term = ifelse(lm_term == 'microbiome_meth_diff',
-                           'microbiome', 'inflammation')) -> age_sig
+                           'microbiome', 'inflammation')) %>%
+  na.omit() -> age_sig
 ```
 
 Calculate and save **IL10ko** annotations
@@ -505,7 +459,7 @@ Get the counts in one table
 age_sig %>%
   mutate(aging_direction = factor(ifelse(aging_meth_diff < 0, 'hypo', 'hyper'),
                                   levels = c('hypo', 'hyper')),
-         lm_direction = factor(ifelse(lm_meth_diff< 0, 'hypo', 'hyper'),
+         lm_direction = factor(ifelse(lm_meth_diff < 0, 'hypo', 'hyper'),
                                levels = c('hypo', 'hyper'))) %>%
   group_by(lm_term, aging_direction, lm_direction) %>%
   count() %>%
@@ -612,7 +566,8 @@ wide_data %>%
          inflammation_meth_diff:microbiome_meth_diff) %>%
   mutate(lm_term = ifelse(lm_term == 'microbiome_meth_diff',
                            'microbiome', 
-                          'inflammation')) -> micro_inflam_both_sig
+                          'inflammation')) %>% 
+  na.omit() -> micro_inflam_both_sig
 ```
 
 Calculate and save **IL10ko** annotations
@@ -788,11 +743,6 @@ ggplot(micro_inflam_both_sig, aes(x = lm_meth_diff, y = aging_meth_diff)) +
        title = 'E') +
   theme_classic(base_size = 20) +
   theme(legend.position = 'none') -> lm_age_scatter
-
-### save
-# ggsave('micro_inflam_sig_BOTH_scatterplot.png', width = 8, height = 4.5)
-# ggsave('micro_inflam_sig_BOTH_scatterplot.pdf', width = 8, height = 4.5)
-# ggsave('micro_inflam_sig_BOTH_scatterplot.tiff', width = 8, height = 4.5)
 ```
 
 ##### Combine count tables, annotations and the scatterplots to make the final figure
@@ -812,6 +762,7 @@ ggdraw() +
                                   axis.line = element_blank(),
                                   axis.title = element_blank()), 
             x = 0.2, y = 0.55, 0.15, 0.15)
+
 ggsave('micro_inflam_sig_BOTH_scatterplot_w_embed_nocolor.png', width = 8, height = 4.5)
 ggsave('micro_inflam_sig_BOTH_scatterplot_w_embed_nocolor.pdf', width = 8, height = 4.5)
 ggsave('micro_inflam_sig_BOTH_scatterplot_w_embed_nocolor.tiff', width = 8, height = 4.5)

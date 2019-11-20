@@ -4,3 +4,10 @@
 ### folders to ignore
 analysis/figures/temp_scatterplot_confusion_matrices
 analysis/figures/upset_intersection_test
+analysis/supplemental_figures/
+
+### files to ignore
+# temporary upset count tables for jean-pierre to write with
+analysis/*.tsv
+analysis/upset_count_tables.Rmd
+analysis/figures/figure?/*upset*.tsv

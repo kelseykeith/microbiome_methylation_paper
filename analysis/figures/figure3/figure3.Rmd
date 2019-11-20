@@ -78,14 +78,7 @@ lm_volc %>%
          IL10KO = ifelse(IL10KO_hypo < 0.05, 1, 0),
          Microbiome = ifelse(Microbiome_hypo < 0.05, 1, 0)) %>%
   as.data.frame() -> lm_upset_hypo
-
-# save counts in table as well
-lm_upset_hypo %>% 
-  group_by(Azoxymethane, IL10KO, Microbiome) %>%
-  count() %>%
-  ungroup() %>%
-  mutate(percent_of_total_sites = round(((n / 12566) * 100), 1)) %>%
-  write_tsv('lm_upset_hypo_counts_percents.tsv')
+#write_tsv(lm_upset_hypo, 'lm_upset_hypo.tsv')
 
 ### hypERmethylated sites
 lm_volc %>%
@@ -105,14 +98,7 @@ lm_volc %>%
          IL10KO = ifelse(IL10KO_hyper < 0.05, 1, 0),
          Microbiome = ifelse(Microbiome_hyper < 0.05, 1, 0),) %>%
   as.data.frame() -> lm_upset_hyper
-
-# save counts in table as well
-lm_upset_hyper %>% 
-  group_by(Azoxymethane, IL10KO, Microbiome) %>%
-  count() %>%
-  ungroup() %>%
-  mutate(percent_of_total_sites = round(((n / 12566) * 100), 1)) %>%
-  write_tsv('lm_upset_hyper_counts_percents.tsv')
+#write_tsv(lm_upset_hyper, 'lm_upset_hyper.tsv')
 ```
 
 #### Volcano Plots

@@ -118,7 +118,8 @@ Methylation differences between specific pathogen free mice treated with azoxyme
 ### volcano plot annotation
 lauren_data_wrangled %>% 
   filter(sample_id == 'spfaom-spf') %>%
-  group_by(meth_change_5, volc_color) %>% 
+  add_count(name = 'sample_count') %>%
+  group_by(meth_change_5, volc_color, sample_count) %>% 
   count() %>% 
   ungroup() %>%
   filter(volc_color != 'notsig') %>%
@@ -126,7 +127,7 @@ lauren_data_wrangled %>%
          logpvalue = 9, 
          label = paste0(n, 
                         ', ', 
-                        round(((n / 12566) * 100), 1
+                        round(((n / sample_count) * 100), 1
                               ), 
                         '%')) -> spfaomspf_labels
 

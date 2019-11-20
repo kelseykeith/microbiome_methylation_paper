@@ -120,7 +120,8 @@ Methylation differences between specific pathogen free mice and germ free mice. 
 ### volcano plot annotation
 lauren_data_wrangled %>% 
   filter(sample_id == 'spf-gf') %>%
-  group_by(meth_change_5, volc_color) %>% 
+  add_count(name = 'sample_count') %>%
+  group_by(meth_change_5, volc_color, sample_count) %>% 
   count() %>% 
   ungroup() %>%
   filter(volc_color != 'notsig') %>%
@@ -128,7 +129,7 @@ lauren_data_wrangled %>%
          logpvalue = 9, 
          label = paste0(n, 
                         ', ', 
-                        round(((n / 12566) * 100), 1), 
+                        round(((n / sample_count) * 100), 1), 
                         '%')) -> spfgf_labels
 
 ### plot
@@ -164,7 +165,8 @@ Methylation differences between germ free mice with IL10KO and germ free mice. C
 ### volcano plot annotation
 lauren_data_wrangled %>% 
   filter(sample_id == 'gfko-gf') %>%
-  group_by(meth_change_5, volc_color) %>% 
+  add_count(name = 'sample_count') %>%
+  group_by(meth_change_5, volc_color, sample_count) %>% 
   count() %>% 
   ungroup() %>%
   filter(volc_color != 'notsig') %>%
@@ -172,7 +174,7 @@ lauren_data_wrangled %>%
          logpvalue = 9, 
          label = paste0(n, 
                         ', ', 
-                        round(((n / 12566) * 100), 1), 
+                        round(((n / sample_count) * 100), 1), 
                         '%')) -> gfkogf_labels
 
 ### plot
@@ -208,7 +210,8 @@ Methylation differences between specific pathogen free mice with IL10KO and germ
 ### volcano plot annotation
 lauren_data_wrangled %>% 
   filter(sample_id == 'spfko-gf') %>%
-  group_by(meth_change_5, volc_color) %>% 
+  add_count(name = 'sample_count') %>%
+  group_by(meth_change_5, volc_color, sample_count) %>% 
   count() %>% 
   ungroup() %>%
   filter(volc_color != 'notsig') %>%
@@ -216,7 +219,7 @@ lauren_data_wrangled %>%
          logpvalue = 9, 
          label = paste0(n, 
                         ', ', 
-                        round(((n / 12566) * 100), 1), 
+                        round(((n / sample_count) * 100), 1), 
                         '%')) -> spfkogf_labels
 
 ### plot
